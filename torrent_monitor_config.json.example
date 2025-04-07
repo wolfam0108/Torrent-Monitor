@@ -1,0 +1,11 @@
+{
+    "qbittorrent": {
+        "host": "http://localhost:8080",
+        "username": "",
+        "password": ""
+    },
+    "scan_interval": 30,
+    "series": {},
+    "last_scan": null,
+    "auto_start": false
+}

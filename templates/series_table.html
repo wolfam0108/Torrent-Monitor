@@ -1,0 +1,31 @@
+<table class="table table-striped" id="series-table">
+    <thead>
+        <tr>
+            <th>URL</th>
+            <th>Путь</th>
+            <th>Название</th>
+            <th>Сезон</th>
+            <th>Авто</th>
+            <th>Состояние</th>
+            <th>Действия</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for url, data in series.items() %}
+        <tr data-url="{{ url }}">
+            <td>{{ url }}</td>
+            <td>{{ data.save_path }}</td>
+            <td>{{ data.series_name }}</td>
+            <td>{{ data.season }}</td>
+            <td><input type="checkbox" class="rename-toggle" data-url="{{ url }}" {% if data.rename_enabled %}checked{% endif %}></td>
+            <td class="status">Ожидание</td>
+            <td class="actions">
+                <button class="btn btn-danger btn-sm delete-btn" data-url="{{ url }}">Удалить</button>
+                <button class="btn btn-warning btn-sm status-btn" data-url="{{ url }}">Статус</button>
+                <button class="btn btn-info btn-sm scan-btn" data-url="{{ url }}">Сканировать</button>
+                <button class="btn btn-primary btn-sm rename-btn" data-url="{{ url }}">Переименование</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

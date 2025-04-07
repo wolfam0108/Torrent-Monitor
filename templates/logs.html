@@ -1,0 +1,5 @@
+<div id="logs" class="log-container">
+    {% for log in logs %}
+    <p class="{{ 'text-info' if 'INFO' in log else 'text-danger' if 'ERROR' in log else '' }}">{{ log }}</p>
+    {% endfor %}
+</div>

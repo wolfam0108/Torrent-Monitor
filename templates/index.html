@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h1>Torrent Monitor</h1>
+    <button class="btn btn-primary mb-3" data-bs-toggle="modal" data-bs-target="#addSeriesModal">Добавить сериал</button>
+    <button class="btn btn-secondary mb-3" data-bs-toggle="modal" data-bs-target="#settingsModal">Настройки</button>
+
+    <h2>Сериалы</h2>
+    {% if series %}
+        {% include 'series_table.html' %}
+    {% else %}
+        <p>Список сериалов пуст.</p>
+    {% endif %}
+
+    <h2>Статус</h2>
+    <p>Мониторинг: {{ 'Активен' if monitoring_status else 'Остановлен' }}</p>
+    {% if monitoring_status %}
+    <a href="/stop" class="btn btn-danger">Остановить</a>
+    {% else %}
+    <a href="/start" class="btn btn-success">Запустить</a>
+    {% endif %}
+    <a href="/scan" class="btn btn-primary">Сканировать все</a>
+    <p>qBittorrent: <span class="{{ 'text-success' if qb_status else 'text-danger' }}">{{ qb_message }}</span></p>
+
+    <h2>Логи</h2>
+    {% include 'logs.html' %}
+</div>
+
+{% include 'modals.html' %}
+
+<div class="toast-container">
+    <div id="toast-template" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto">Уведомление</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body"></div>
+    </div>
+</div>
+{% endblock %}

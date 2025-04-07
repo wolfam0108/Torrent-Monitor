@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Статус: {{ series_url }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <h1>Статус: {{ series_url }}</h1>
+        <a href="/" class="btn btn-primary mb-3">Назад</a>
+        <h2>Статистика</h2>
+        <p>Всего: {{ status_data.total }}</p>
+        <p>Скачано: <span class="text-success">{{ status_data.downloaded }}</span></p>
+        <p>Новых: <span class="text-primary">{{ status_data.new }}</span></p>
+        <h2>Эпизоды</h2>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Дата</th>
+                    <th>ID</th>
+                    <th>Статус</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for episode in status_data.episodes %}
+                <tr>
+                    <td>{{ episode.name }}</td>
+                    <td>{{ episode.date }}</td>
+                    <td>{{ episode.torrent_id }}</td>
+                    <td class="{{ 'text-success' if episode.status == 'Скачан/В загрузках' else 'text-primary' }}">{{ episode.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
