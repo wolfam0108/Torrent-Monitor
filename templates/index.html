@@ -20,7 +20,7 @@
     <a href="/start" class="btn btn-success">Запустить</a>
     {% endif %}
     <a href="/scan" class="btn btn-primary">Сканировать все</a>
-    <p>qBittorrent: <span class="{{ 'text-success' if qb_status else 'text-danger' }}">{{ qb_message }}</span></p>
+    <p>qBittorrent: <span class="qb-status {{ 'text-success' if qb_status else 'text-danger' }}">{{ qb_message }}</span></p>
 
     <h2>Логи</h2>
     {% include 'logs.html' %}

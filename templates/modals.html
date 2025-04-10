@@ -8,17 +8,23 @@
             <div class="modal-body">
                 <form method="POST" action="/add">
                     <div class="mb-3">
-                        <input type="text" name="series_url" class="form-control" placeholder="URL сериала" required>
+                        <input type="text" name="series_url" id="series_url" class="form-control" placeholder="URL сериала" required>
                     </div>
                     <div class="mb-3">
                         <input type="text" name="save_path" class="form-control" placeholder="Путь сохранения" required>
                     </div>
                     <div class="mb-3">
-                        <input type="text" name="series_name" class="form-control" placeholder="Название сериала" required>
+                        <input type="text" name="series_name" id="series_name" class="form-control" placeholder="Название сериала" required>
                     </div>
                     <div class="mb-3">
                         <input type="text" name="season" class="form-control" placeholder="Сезон (s01)" required>
                     </div>
+                    <div class="mb-3">
+                        <label for="quality">Качество</label>
+                        <select name="quality" id="quality" class="form-control"></select>
+                    </div>
+                    <input type="hidden" name="torrent_ids" id="torrent_ids">
+                    <div id="add-status-preview"></div>
                     <button type="submit" class="btn btn-primary">Добавить</button>
                 </form>
             </div>
@@ -71,31 +77,6 @@
             </div>
             <div class="modal-body">
                 <div id="status-content"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="renameModal" tabindex="-1" aria-labelledby="renameModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="renameModalLabel">Переименование сериала</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="rename-form">
-                    <div class="mb-3">
-                        <label>Название сериала</label>
-                        <input type="text" name="series_name" class="form-control" id="rename-series-name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label>Сезон</label>
-                        <input type="text" name="season" class="form-control" id="rename-season" required>
-                    </div>
-                    <div id="rename-preview"></div>
-                    <button type="submit" class="btn btn-success">Применить</button>
-                </form>
             </div>
         </div>
     </div>
