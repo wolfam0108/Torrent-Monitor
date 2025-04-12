@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 import logging
 import logging.handlers
-from typing import List  # Добавляем импорт List
+from typing import List
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -27,6 +27,14 @@ class Config:
         return {
             "qbittorrent": {
                 "host": "http://localhost:8080",
+                "username": "",
+                "password": ""
+            },
+            "kinozal_auth": {
+                "username": "",
+                "password": ""
+            },
+            "rutracker_auth": {
                 "username": "",
                 "password": ""
             },
@@ -92,7 +100,8 @@ class Config:
             "rename_enabled": False,
             "quality": quality,
             "is_seasonal_torrent": is_seasonal_torrent,
-            "torrent_ids": torrent_ids or []
+            "torrent_ids": torrent_ids or [],
+            "last_updated": None  # Добавляем поле для даты обновления
         }
         self.save_config()
         logger.info(f"Добавлен сериал: {series_url}")

@@ -1,9 +1,10 @@
 import asyncio
 import re
-from qbittorrentapi import Client, LoginFailed
+from qbittorrentapi import Client
 import logging
 import logging.handlers
 from typing import List, Dict, Optional, Tuple
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,40 +17,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class QBittorrentManager:
-    def __init__(self, host: str, username: str, password: str, max_retries: int = 3):
-        self.host = host
-        self.username = username
-        self.password = password
-        self.max_retries = max_retries
-        self.client = None
-
-    async def connect(self) -> Tuple[bool, str]:
-        for attempt in range(self.max_retries):
-            try:
-                self.client = Client(
-                    host=self.host,
-                    username=self.username,
-                    password=self.password,
-                    VERIFY_WEBUI_CERTIFICATE=False
-                )
-                self.client.auth_log_in()
-                version = self.client.app.version
-                logger.info(f"Подключено к qBittorrent, версия: {version}")
-                return True, f"Подключено (версия: {version})"
-            except LoginFailed as e:
-                logger.error(f"Попытка {attempt + 1}/{self.max_retries}: Ошибка входа: {e}")
-            except Exception as e:
-                logger.error(f"Попытка {attempt + 1}/{self.max_retries}: Ошибка подключения: {e}")
-            if attempt < self.max_retries - 1:
-                await asyncio.sleep(2 ** attempt)
-        self.client = None
-        return False, "Не удалось подключиться к qBittorrent"
-
-    def disconnect(self):
-        if self.client:
-            self.client.auth_log_out()
-            logger.info("Отключено от qBittorrent")
-            self.client = None
+    def __init__(self, client: Client):
+        self.client = client
 
     async def add_torrent(self, torrent_content: bytes | str, save_path: str, torrent_id: str, rename_enabled: bool, series_name: str, season: str, socketio=None) -> Tuple[bool, str]:
         if not self.client:
@@ -83,6 +52,8 @@ class QBittorrentManager:
             torrent_hash = next((t.hash for t in torrents if torrent_id in t.tags), None)
             if not torrent_hash:
                 return True, f"Торрент добавлен, но не найден в списке (ID: {torrent_id})"
+            if rename_enabled:
+                await self.rename_torrent_files(torrent_hash, save_path, series_name, season, torrent_id, socketio)
             return True, f"Торрент добавлен: {series_name} в {save_path}"
         except Exception as e:
             logger.error(f"Ошибка добавления торрента {torrent_id}: {e}")
@@ -101,27 +72,40 @@ class QBittorrentManager:
             await asyncio.sleep(10)
 
     def get_new_filename(self, old_name: str, series_name: str, season: str) -> Optional[str]:
+        """Генерирует новое имя файла с учётом нового паттерна, сохраняя расширение."""
         patterns = [
-            r'Серия\s+(\d+)', r'Серии\s+(\d+)-(\d+)', r'\s(\d+)\s', r'\.(\d+)\.', r'_(\d+)_', r'\[(\d+)\]', r'[eE](\d+)'
+            r"(\d{2})\.\s*(.+?)(?:\s*\(.*\))?$",  # "01. Name..."
+            r".+\s+-\s+(\d{2})$",  # "Name - 06..."
+            r'Серия\s+(\d+)', r'Серии\s+(\d+)-(\d+)', r'\s(\d+)\s', r'_(\d+)_',
+            r'\[(\d+)\]', r'[eE](\d+)'
         ]
         resolution_patterns = [r'(720p)', r'(1080p)', r'(2160p)']
-        base_name, ext = old_name.rsplit('.', 1) if '.' in old_name else (old_name, '')
+
+        # Разделяем путь, имя файла и расширение
+        directory, filename = os.path.split(old_name)
+        base_name, extension = os.path.splitext(filename)
+
         episode_num = None
         for pattern in patterns:
             match = re.search(pattern, base_name)
             if match:
                 episode_num = match.group(1).zfill(2)
                 break
+    
         resolution = ''
         for res_pattern in resolution_patterns:
             match = re.search(res_pattern, base_name, re.IGNORECASE)
             if match:
                 resolution = f" {match.group(1)}"
                 break
+    
         if episode_num:
-            return f"{series_name} {season}e{episode_num}{resolution}.{ext}"
+            # Формируем новое имя с расширением, если оно есть
+            new_name = f"{series_name} {season}e{episode_num}{resolution}{extension}"
+            return os.path.join(directory, new_name) if directory else new_name
+    
         logger.warning(f"Не удалось извлечь номер эпизода из {old_name}")
-        return None
+        return old_name  # Возвращаем исходное имя, если паттерн не найден
 
     async def rename_torrent_files(self, torrent_hash: str, save_path: str, series_name: str, season: str, torrent_id: str, socketio=None):
         if not self.client:

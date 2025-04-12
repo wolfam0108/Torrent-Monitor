@@ -1,11 +1,17 @@
 import asyncio
 import cloudscraper
-from bs4 import BeautifulSoup
+from lxml import html
 import logging
+from datetime import datetime
 from .base_scraper import BaseScraper
 import hashlib
+import os
 
 logger = logging.getLogger(__name__)
+
+# Флаг для включения/отключения сохранения HTML для отладки
+# Установите в True, чтобы сохранять дебаг-файлы, или в False, чтобы отключить
+DEBUG_SAVE_HTML = False
 
 class AstarBzScraper(BaseScraper):
     def __init__(self, max_retries: int = 3):
@@ -19,42 +25,86 @@ class AstarBzScraper(BaseScraper):
             "Connection": "keep-alive"
         }
 
+    async def fetch_page(self, url: str):
+        for attempt in range(self.max_retries):
+            try:
+                response = await asyncio.to_thread(self.scraper.get, url, headers=self.headers)
+                if response.status_code == 200:
+                    html_content = response.text
+                    if DEBUG_SAVE_HTML:
+                        url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+                        debug_filename = f"debug_astar_bz_{url_hash}.html"
+                        with open(debug_filename, "w", encoding="utf-8") as f:
+                            f.write(html_content)
+                        logger.info(f"HTML страницы {url} сохранён в {debug_filename}")
+                    return html_content
+                logger.warning(f"Попытка {attempt + 1}/{self.max_retries}: Код ответа {response.status_code} для {url}")
+            except Exception as e:
+                logger.error(f"Попытка {attempt + 1}/{self.max_retries}: Ошибка при запросе {url}: {e}")
+            await asyncio.sleep(2 ** attempt)
+        logger.error(f"Не удалось загрузить страницу {url} после {self.max_retries} попыток")
+        return None
+
     async def get_episodes(self, series_url: str, quality: str = None):
-        # quality игнорируется, так как для v6.astar.bz нет вариантов качества
+        # quality игнорируется, так как Astar.bz не предоставляет варианты качества
         episodes = []
-        html = await self.fetch_page(series_url)
-        if not html:
+        html_content = await self.fetch_page(series_url)
+        if not html_content:
             return episodes
-        soup = BeautifulSoup(html, "html.parser")
-        torrent_blocks = soup.find_all("div", class_="torrent")
+
+        tree = html.fromstring(html_content)
+        
+        # Извлечение названия сериала
+        title_elem = tree.xpath('//h1[@itemprop="name"]/text()')
+        series_name = title_elem[0].strip() if title_elem else "Неизвестно"
+        names = [name.strip() for name in series_name.split("/")]
+
+        torrent_blocks = tree.xpath('//div[@class="torrent"]')
         base_torrent_id = hashlib.md5(series_url.encode()).hexdigest()[:8]
+
         for i, block in enumerate(torrent_blocks):
-            torrent_link = block.find("a", href=True)
-            if not torrent_link or "gettorrent.php?id=" not in torrent_link["href"]:
+            torrent_link = block.xpath('.//a[contains(@href, "gettorrent.php?id=")]/@href')
+            if not torrent_link:
+                logger.warning(f"Ссылка на торрент не найдена для блока {i} в {series_url}")
                 continue
-            torrent_url = f"https://v6.astar.bz/{torrent_link['href']}"
+            torrent_url = f"https://v6.astar.bz{torrent_link[0]}"
             torrent_id = f"{base_torrent_id}_{i:02d}"
-            episode_name = torrent_link.find("div", class_="info_d1").text.strip()
-            date_elem = block.find("div", class_="bord_a1", string=lambda x: x and "Дата: " in x)
-            date_str = date_elem.text.replace("Дата: ", "").strip() if date_elem else "Неизвестно"
+
+            episode_name_elem = block.xpath('.//div[@class="info_d1"]/text()')
+            episode_name = episode_name_elem[0].strip() if episode_name_elem else f"Эпизод {i+1}"
+
+            # Извлечение даты
+            date_elem = block.xpath('.//div[@class="bord_a1"][contains(., "Дата: ")]//text()')
+            last_updated = ""
+            if date_elem:
+                date_str = "".join(date_elem).replace("Дата: ", "").strip()
+                if date_str:
+                    try:
+                        last_updated = datetime.strptime(date_str, "%d-%m-%Y").isoformat()
+                    except ValueError as e:
+                        logger.error(f"Ошибка парсинга даты '{date_str}' для торрента {torrent_id}: {e}")
+            if not last_updated:
+                logger.warning(f"Дата не найдена для торрента {torrent_id}, используется значение по умолчанию")
+
             episodes.append({
                 "torrent_url": torrent_url,
                 "torrent_id": torrent_id,
-                "name": episode_name,
-                "date": date_str
-                # Убираем magnet_link, так как используем торрент-файлы
+                "name": names[0],  # Основное название сериала
+                "episode_name": episode_name,  # Название конкретного торрента
+                "last_updated": last_updated,
+                "quality": "N/A"
             })
+
         logger.info(f"Найдено {len(episodes)} эпизодов для {series_url}")
         return episodes
 
     async def get_torrent_content(self, torrent_url: str):
-        # Загружаем торрент-файл напрямую
         for attempt in range(self.max_retries):
             try:
                 response = await asyncio.to_thread(self.scraper.get, torrent_url, headers=self.headers)
                 if response.status_code == 200:
                     logger.info(f"Успешно загружен торрент-файл для {torrent_url}")
-                    return response.content  # Возвращаем байты торрент-файла
+                    return response.content
                 logger.warning(f"Попытка {attempt + 1}/{self.max_retries}: Код ответа {response.status_code} для {torrent_url}")
             except Exception as e:
                 logger.error(f"Попытка {attempt + 1}/{self.max_retries}: Ошибка при запросе {torrent_url}: {e}")
@@ -63,33 +113,18 @@ class AstarBzScraper(BaseScraper):
         return None
 
     async def scan_series(self, series_url: str):
-        html = await self.fetch_page(series_url)
-        if not html:
+        html_content = await self.fetch_page(series_url)
+        if not html_content:
             return {"name": "Ошибка", "quality_options": []}
-        soup = BeautifulSoup(html, "html.parser")
-        title_elem = soup.find("h1", class_="post_h1")
-        series_name = title_elem.text.strip() if title_elem else "Неизвестно"
-        torrent_blocks = soup.find_all("div", class_="torrent")
-        quality_options = []
-        for block in torrent_blocks:
-            torrent_link = block.find("a", href=True)
-            if torrent_link and "gettorrent.php?id=" in torrent_link["href"]:
-                quality_options.append({"link": f"https://v6.astar.bz/{torrent_link['href']}", "quality": "Стандартное"})
-        logger.info(f"Найдено {len(quality_options)} уникальных вариантов качества для {series_url}")
-        return {
-            "name": series_name,
-            "quality_options": quality_options if quality_options else [{"link": "", "quality": "Не найдено"}]
-        }
 
-    async def fetch_page(self, url: str):
-        for attempt in range(self.max_retries):
-            try:
-                response = await asyncio.to_thread(self.scraper.get, url, headers=self.headers)
-                if response.status_code == 200:
-                    return response.text
-                logger.warning(f"Попытка {attempt + 1}/{self.max_retries}: Код ответа {response.status_code} для {url}")
-            except Exception as e:
-                logger.error(f"Попытка {attempt + 1}/{self.max_retries}: Ошибка при запросе {url}: {e}")
-            await asyncio.sleep(2 ** attempt)
-        logger.error(f"Не удалось загрузить страницу {url} после {self.max_retries} попыток")
-        return None
+        tree = html.fromstring(html_content)
+        title_elem = tree.xpath('//h1[@itemprop="name"]/text()')
+        series_name = title_elem[0].strip() if title_elem else "Неизвестно"
+        names = [name.strip() for name in series_name.split("/")]
+
+        logger.info(f"Найдено вариантов качества для {series_url}: отсутствуют")
+        return {
+            "name": names[0],
+            "names": names,
+            "quality_options": []
+        }

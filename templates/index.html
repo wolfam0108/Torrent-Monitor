@@ -4,6 +4,7 @@
     <h1>Torrent Monitor</h1>
     <button class="btn btn-primary mb-3" data-bs-toggle="modal" data-bs-target="#addSeriesModal">Добавить сериал</button>
     <button class="btn btn-secondary mb-3" data-bs-toggle="modal" data-bs-target="#settingsModal">Настройки</button>
+    <button class="btn btn-info mb-3" data-bs-toggle="modal" data-bs-target="#logsModal">Показать логи</button>
 
     <h2>Сериалы</h2>
     {% if series %}
@@ -13,6 +14,12 @@
     {% endif %}
 
     <h2>Статус</h2>
+    <div id="status-container">
+        <p>qBittorrent: <span id="qbittorrent-status" class="text-muted">Проверка...</span> <span id="qbittorrent-spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></p>
+        <p>Kinozal: <span id="kinozal-status" class="text-muted">Проверка...</span> <span id="kinozal-spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></p>
+        <p>RuTracker: <span id="rutracker-status" class="text-muted">Проверка...</span> <span id="rutracker-spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></p>
+    </div>
+
     <p>Мониторинг: {{ 'Активен' if monitoring_status else 'Остановлен' }}</p>
     {% if monitoring_status %}
     <a href="/stop" class="btn btn-danger">Остановить</a>
@@ -20,10 +27,6 @@
     <a href="/start" class="btn btn-success">Запустить</a>
     {% endif %}
     <a href="/scan" class="btn btn-primary">Сканировать все</a>
-    <p>qBittorrent: <span class="qb-status {{ 'text-success' if qb_status else 'text-danger' }}">{{ qb_message }}</span></p>
-
-    <h2>Логи</h2>
-    {% include 'logs.html' %}
 </div>
 
 {% include 'modals.html' %}

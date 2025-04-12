@@ -2,35 +2,29 @@ from flask import Flask
 from flask_socketio import SocketIO
 from routes import setup_routes
 from monitor import setup_scheduler, scheduler
-from qbittorrent_manager import QBittorrentManager
 from config import Config
 from utils import setup_logging
-from scrapers.anilibria_scraper import AnilibriaScraper
-from scrapers.astar_bz_scraper import AstarBzScraper
+from auth_manager import AuthManager
+import asyncio
 
 app = Flask(__name__)
 socketio = SocketIO(app)
 
+# Флаг для включения/отключения парсера nnmclub.to
+ENABLE_NNMCLUB_SCRAPER = False
+
 # Инициализация логирования
 setup_logging(socketio)
 
-# Инициализация парсеров
-scrapers = {
-    "anilibria.top": AnilibriaScraper(),
-    "astar.bz": AstarBzScraper()
-}
-
 # Инициализация конфигурации
 config = Config()
-qb_manager = QBittorrentManager(
-    config.get("qbittorrent")["host"],
-    config.get("qbittorrent")["username"],
-    config.get("qbittorrent")["password"]
-)
+
+# Инициализация менеджера авторизации
+auth_manager = AuthManager(config, socketio, enable_nnmclub_scraper=ENABLE_NNMCLUB_SCRAPER)
 
 # Передаём объекты в маршруты и планировщик
-setup_routes(app, socketio, qb_manager, scrapers, config)
-setup_scheduler(socketio, qb_manager, scrapers, config)
+setup_routes(app, socketio, auth_manager, config)
+setup_scheduler(socketio, auth_manager, config)
 
 # Автозапуск мониторинга только если auto_start включён
 if config.get("auto_start", False):
@@ -41,6 +35,20 @@ if config.get("auto_start", False):
 else:
     app.config['scheduler_running'] = False
     print("Мониторинг не запущен при старте (auto_start отключён)")
+
+# Запускаем инициализацию авторизации после старта приложения
+@socketio.on('connect')
+def handle_connect():
+    def run_async_task():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(auth_manager.initialize())
+        finally:
+            loop.close()
+    
+    import threading
+    threading.Thread(target=run_async_task, daemon=True).start()
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)

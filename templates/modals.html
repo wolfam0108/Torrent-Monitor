@@ -5,29 +5,21 @@
                 <h5 class="modal-title" id="addSeriesModalLabel">Добавить сериал</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <form method="POST" action="/add">
+            <form method="POST" action="/add">
+                <div class="modal-body">
                     <div class="mb-3">
-                        <input type="text" name="series_url" id="series_url" class="form-control" placeholder="URL сериала" required>
+                        <label for="series_url" class="form-label">URL сериала</label>
+                        <input type="text" id="series_url" name="series_url" class="form-control" required>
                     </div>
-                    <div class="mb-3">
-                        <input type="text" name="save_path" class="form-control" placeholder="Путь сохранения" required>
-                    </div>
-                    <div class="mb-3">
-                        <input type="text" name="series_name" id="series_name" class="form-control" placeholder="Название сериала" required>
-                    </div>
-                    <div class="mb-3">
-                        <input type="text" name="season" class="form-control" placeholder="Сезон (s01)" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="quality">Качество</label>
-                        <select name="quality" id="quality" class="form-control"></select>
-                    </div>
-                    <input type="hidden" name="torrent_ids" id="torrent_ids">
+                    <div id="dynamic-fields"></div>
+                    <input type="hidden" id="torrent_ids" name="torrent_ids">
                     <div id="add-status-preview"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
                     <button type="submit" class="btn btn-primary">Добавить</button>
-                </form>
-            </div>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -39,31 +31,69 @@
                 <h5 class="modal-title" id="settingsModalLabel">Настройки</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <form method="POST" action="/update_settings">
+            <form method="POST" action="/update_settings">
+                <div class="modal-body">
+                    <h6>qBittorrent</h6>
                     <div class="mb-3">
-                        <label for="qb_host_input">Адрес qBittorrent</label>
+                        <label for="qb_host_input" class="form-label">Хост</label>
                         <input type="text" id="qb_host_input" name="qb_host" class="form-control" value="{{ qb_config.host }}" required>
                     </div>
                     <div class="mb-3">
-                        <label for="qb_username_input">Имя пользователя</label>
-                        <input type="text" id="qb_username_input" name="qb_username" class="form-control" value="{{ qb_config.username }}" required>
+                        <label for="qb_username_input" class="form-label">Имя пользователя</label>
+                        <input type="text" id="qb_username_input" name="qb_username" class="form-control" value="{{ qb_config.username }}">
                     </div>
                     <div class="mb-3">
-                        <label for="qb_password_input">Пароль</label>
-                        <input type="text" id="qb_password_input" name="qb_password" class="form-control" value="{{ qb_config.password }}" required>
+                        <label for="qb_password_input" class="form-label">Пароль</label>
+                        <div class="input-group">
+                            <input type="password" id="qb_password_input" name="qb_password" class="form-control" value="{{ qb_config.password }}">
+                            <button type="button" class="btn btn-outline-secondary toggle-password" data-target="qb_password_input">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <h6>Kinozal</h6>
+                    <div class="mb-3">
+                        <label for="kinozal_username_input" class="form-label">Имя пользователя</label>
+                        <input type="text" id="kinozal_username_input" name="kinozal_username" class="form-control" value="{{ kinozal_auth.username }}">
                     </div>
                     <div class="mb-3">
-                        <label for="scan_interval_input">Интервал (минуты)</label>
+                        <label for="kinozal_password_input" class="form-label">Пароль</label>
+                        <div class="input-group">
+                            <input type="password" id="kinozal_password_input" name="kinozal_password" class="form-control" value="{{ kinozal_auth.password }}">
+                            <button type="button" class="btn btn-outline-secondary toggle-password" data-target="kinozal_password_input">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <h6>RuTracker</h6>
+                    <div class="mb-3">
+                        <label for="rutracker_username_input" class="form-label">Имя пользователя</label>
+                        <input type="text" id="rutracker_username_input" name="rutracker_username" class="form-control" value="{{ rutracker_auth.username }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="rutracker_password_input" class="form-label">Пароль</label>
+                        <div class="input-group">
+                            <input type="password" id="rutracker_password_input" name="rutracker_password" class="form-control" value="{{ rutracker_auth.password }}">
+                            <button type="button" class="btn btn-outline-secondary toggle-password" data-target="rutracker_password_input">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <h6>Общие</h6>
+                    <div class="mb-3">
+                        <label for="scan_interval_input" class="form-label">Интервал сканирования (минуты)</label>
                         <input type="number" id="scan_interval_input" name="scan_interval" class="form-control" value="{{ scan_interval }}" min="1" required>
                     </div>
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" id="auto_start_input" name="auto_start" class="form-check-input" {% if config.get('auto_start', False) %}checked{% endif %}>
-                        <label for="auto_start_input" class="form-check-label">Автозапуск мониторинга</label>
+                    <div class="mb-3">
+                        <label for="auto_start_input" class="form-label">Автозапуск мониторинга</label>
+                        <input type="checkbox" id="auto_start_input" name="auto_start" class="form-check-input" {{ 'checked' if qb_config.auto_start }}>
                     </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
                     <button type="submit" class="btn btn-primary">Сохранить</button>
-                </form>
-            </div>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -77,6 +107,24 @@
             </div>
             <div class="modal-body">
                 <div id="status-content"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logsModalLabel">Логи приложения</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="logs" class="log-container">
+                    {% for log in logs %}
+                    <p class="{{ 'text-info' if 'INFO' in log else 'text-danger' if 'ERROR' in log else '' }}">{{ log }}</p>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>

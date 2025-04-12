@@ -1,32 +1,30 @@
 import asyncio
 from flask import render_template, redirect, url_for, request, jsonify
 import logging
-from monitor import scheduler, run_scan_series, find_series_data, monitor_task  # Добавлен импорт monitor_task
+from monitor import scheduler, run_scan_series, find_series_data, monitor_task
 from utils import load_logs
 import threading
 from urllib.parse import urlparse
 import hashlib
+from qbittorrent_manager import QBittorrentManager
 
 logger = logging.getLogger(__name__)
 
-def setup_routes(app, socketio, qb_manager, scrapers, config):
+def setup_routes(app, socketio, auth_manager, config):
     def get_scraper(series_url):
-        domain = urlparse(series_url).netloc
-        return next((s for d, s in scrapers.items() if d in domain), None)
+        return auth_manager.get_scraper(series_url)
 
     @app.route('/')
     def index():
-        qb_status, qb_message = asyncio.run(qb_manager.connect()) if not qb_manager.client else (True, "Подключено")
-        logs = load_logs()
         return render_template(
             'index.html',
             series=config.get("series", {}),
             monitoring_status=app.config.get('scheduler_running', False),
-            qb_status=qb_status,
-            qb_message=qb_message,
-            qb_config=config.get("qbittorrent"),
-            scan_interval=config.get("scan_interval"),
-            logs=logs
+            logs=load_logs(),
+            qb_config=config.get("qbittorrent", {}),
+            kinozal_auth=config.get("kinozal_auth", {}),
+            rutracker_auth=config.get("rutracker_auth", {}),
+            scan_interval=config.get("scan_interval", 30)
         )
 
     @app.route('/add', methods=['POST'])
@@ -37,7 +35,21 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
         season = request.form['season'].strip()
         quality = request.form.get('quality', None)
         torrent_ids = request.form.get('torrent_ids', '').split(',')
-        is_seasonal_torrent = 'anilibria.top' in series_url
+        is_seasonal_torrent = 'anilibria.top' in series_url or 'kinozal.tv' in series_url or 'kinozal.me' in series_url or 'rutracker.org' in series_url or 'nnmclub.to' in series_url
+        
+        scraper = get_scraper(series_url)
+        if not scraper:
+            socketio.emit('notification', {'message': 'Парсер не найден для этого URL', 'type': 'danger'})
+            return "Парсер не найден!", 400
+        
+        if ('kinozal.tv' in series_url or 'kinozal.me' in series_url) and (not config.get("kinozal_auth")["username"] or not config.get("kinozal_auth")["password"]):
+            socketio.emit('notification', {'message': 'Требуется авторизация для kinozal. Укажите логин и пароль в настройках.', 'type': 'danger'})
+            return "Требуется авторизация!", 400
+        
+        if 'rutracker.org' in series_url and (not config.get("rutracker_auth")["username"] or not config.get("rutracker_auth")["password"]):
+            socketio.emit('notification', {'message': 'Требуется авторизация для rutracker.org. Укажите логин и пароль в настройках.', 'type': 'danger'})
+            return "Требуется авторизация!", 400
+        
         if config.add_series(series_url, save_path, series_name, season, quality, is_seasonal_torrent):
             config.config["series"][series_url]["torrent_ids"] = torrent_ids
             config.save_config()
@@ -79,7 +91,7 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
         for series_url in series:
             scraper = get_scraper(series_url)
             if scraper:
-                threading.Thread(target=run_scan_series, args=(series_url, socketio, qb_manager, scraper, config), daemon=True).start()
+                threading.Thread(target=run_scan_series, args=(series_url, socketio, auth_manager, config), daemon=True).start()
         socketio.emit('notification', {'message': 'Сканирование всех сериалов запущено', 'type': 'info'})
         return redirect(url_for('index'))
 
@@ -88,7 +100,7 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
         scraper = get_scraper(series_url)
         series_data = find_series_data(series_url, config)
         if series_data and scraper:
-            threading.Thread(target=run_scan_series, args=(series_url, socketio, qb_manager, scraper, config), daemon=True).start()
+            threading.Thread(target=run_scan_series, args=(series_url, socketio, auth_manager, config), daemon=True).start()
             socketio.emit('notification', {'message': f'Сканирование запущено для {series_url}', 'type': 'info'})
             return jsonify({"status": "started"})
         socketio.emit('notification', {'message': 'Сериал не найден', 'type': 'danger'})
@@ -99,19 +111,30 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
     def api_status(series_url):
         series_data = find_series_data(series_url, config)
         if not series_data:
+            socketio.emit('notification', {'message': 'Сериал не найден', 'type': 'danger'})
             return jsonify({"error": "Сериал не найден"}), 404
         scraper = get_scraper(series_url)
         if not scraper:
-            return jsonify({"error": "Парсер не найден"}), 404
+            from urllib.parse import urlparse
+            domain = urlparse(series_url).netloc
+            if domain == "nnmclub.to":
+                socketio.emit('notification', {'message': 'Парсер для nnmclub.to отключён в настройках приложения', 'type': 'warning'})
+                return jsonify({"error": "Парсер для nnmclub.to отключён"}), 400
+            socketio.emit('notification', {'message': 'Парсер не найден для этого URL', 'type': 'danger'})
+            return jsonify({"error": "Парсер не найден"}), 400
         
         try:
             episodes = asyncio.run(scraper.get_episodes(series_url, quality=series_data.get("quality")))
             logger.info(f"Получено {len(episodes)} эпизодов для {series_url} через парсер")
+            if not episodes:
+                socketio.emit('notification', {'message': 'Эпизоды не найдены для этого сериала', 'type': 'warning'})
         except Exception as e:
             logger.error(f"Ошибка при получении эпизодов для {series_url}: {str(e)}")
+            socketio.emit('notification', {'message': f'Ошибка при сканировании сайта: {str(e)}', 'type': 'danger'})
             return jsonify({"error": f"Ошибка при сканировании сайта: {str(e)}"}), 500
         
-        qb_torrents = qb_manager.client.torrents_info() if qb_manager.client else []
+        qb_client = auth_manager.get_qb_client()
+        qb_torrents = qb_client.torrents_info() if qb_client else []
         torrent_ids = series_data.get("torrent_ids", [ep["torrent_id"] for ep in episodes])
 
         if request.method == 'POST':
@@ -120,9 +143,17 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
             config.save_config()
             torrent_hashes = [t.hash for t in qb_torrents if any(t_id in t.tags for t_id in torrent_ids)]
             try:
+                qb_manager = QBittorrentManager(qb_client)
                 for torrent_hash in torrent_hashes:
-                    torrent = next(t for t in qb_torrents if t.hash == torrent_hash)
-                    torrent_id = next(t_id for t_id in torrent_ids if t_id in torrent.tags)
+                    logger.info(f"Обработка торрента с хэшем {torrent_hash}")
+                    torrent = next((torrent for torrent in qb_torrents if torrent.hash == torrent_hash), None)
+                    if not torrent:
+                        logger.warning(f"Торрент с хэшем {torrent_hash} не найден")
+                        continue
+                    torrent_id = next((t_id for t_id in torrent_ids if t_id in torrent.tags), None)
+                    if not torrent_id:
+                        logger.warning(f"ID торрента не найден для хэша {torrent_hash}")
+                        continue
                     asyncio.run(qb_manager.rename_torrent_files(
                         torrent_hash, series_data["save_path"], series_data["series_name"], 
                         series_data["season"], torrent_id, socketio
@@ -131,13 +162,14 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
                 return jsonify({"message": "Переименование выполнено"})
             except Exception as e:
                 logger.error(f"Ошибка при переименовании: {e}")
+                socketio.emit('notification', {'message': f'Ошибка при переименовании: {str(e)}', 'type': 'danger'})
                 return jsonify({"error": str(e)}), 500
 
         status_data = {
             "episodes": [
                 {
                     "name": ep["name"],
-                    "date": ep.get("date", "Неизвестно"),
+                    "date": ep.get("last_updated", "Неизвестно"),
                     "torrent_id": ep["torrent_id"],
                     "status": "Есть на сайте"
                 } for ep in episodes
@@ -149,8 +181,9 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
         rename_preview = []
         has_completed = False
         for ep in status_data["episodes"]:
-            torrent = next((t for t in qb_torrents if ep["torrent_id"] in t.tags), None)
+            torrent = next((torrent for torrent in qb_torrents if ep["torrent_id"] in torrent.tags), None)
             if torrent:
+                qb_manager = QBittorrentManager(qb_client)
                 status = qb_manager.get_torrent_status(torrent.hash)
                 if status:
                     ep["status"] = status["state"]
@@ -158,7 +191,7 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
                         has_completed = True
                         status_data["downloaded"] += 1
                         status_data["new"] -= 1
-                        files = qb_manager.client.torrents_files(torrent_hash=torrent.hash)
+                        files = qb_client.torrents_files(torrent_hash=torrent.hash)
                         for file in files:
                             new_name = qb_manager.get_new_filename(file.name, series_data["series_name"], series_data["season"])
                             rename_preview.append({
@@ -191,29 +224,49 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
         series_url = request.json.get('series_url', '').strip()
         scraper = get_scraper(series_url)
         if not scraper:
+            from urllib.parse import urlparse
+            domain = urlparse(series_url).netloc
+            if domain == "nnmclub.to":
+                socketio.emit('notification', {'message': 'Парсер для nnmclub.to отключён в настройках приложения', 'type': 'warning'})
+                return jsonify({"error": "Парсер для nnmclub.to отключён"}), 400
+            socketio.emit('notification', {'message': 'Парсер не найден для этого URL', 'type': 'danger'})
             return jsonify({"error": "Парсер не найден для этого URL"}), 400
         try:
-            result = asyncio.run(scraper.scan_series(series_url))
-            torrent_ids = [hashlib.md5(series_url.encode()).hexdigest()[:8] + f"_{opt['quality']}" for opt in result["quality_options"]]
-            qb_torrents = qb_manager.client.torrents_info() if qb_manager.client else []
+            result = asyncio.run(scraper.get_episodes(series_url))
+            if not result:
+                socketio.emit('notification', {'message': 'Эпизоды не найдены', 'type': 'warning'})
+                return jsonify({"error": "Эпизоды не найдены"}), 404
+            
+            torrent_ids = [ep["torrent_id"] for ep in result]
+            quality_options = [{"quality": ep.get("quality", "N/A")} for ep in result] if any("quality" in ep and ep["quality"] != "N/A" for ep in result) else []
+            qb_client = auth_manager.get_qb_client()
+            qb_torrents = qb_client.torrents_info() if qb_client else []
+            names = result[0].get("names", [result[0]["name"]]) if "names" in result[0] else [result[0]["name"]]
             status_data = {
                 "episodes": [
                     {
-                        "name": f"Сезон целиком ({opt['quality']})",
-                        "torrent_id": tid,
-                        "status": "Есть на сайте" if not any(tid in t.tags for t in qb_torrents) else 
-                                  qb_manager.get_torrent_status(next(t.hash for t in qb_torrents if tid in t.tags))["state"]
-                    } for opt, tid in zip(result["quality_options"], torrent_ids)
+                        "name": ep["name"],
+                        "episode_name": ep.get("episode_name", ep["name"]),
+                        "torrent_id": ep["torrent_id"],
+                        "quality": ep.get("quality", "N/A"),
+                        "last_updated": ep.get("last_updated", ""),
+                        "status": "Есть на сайте" if not any(ep["torrent_id"] in t.tags for t in qb_torrents) else 
+                                  QBittorrentManager(qb_client).get_torrent_status(next(t.hash for t in qb_torrents if ep["torrent_id"] in t.tags))["state"]
+                    } for ep in result
                 ]
             }
-            return jsonify({
-                "name": result["name"],
-                "quality_options": result["quality_options"],
+            response = {
+                "name": result[0]["name"],
+                "names": names,
                 "torrent_ids": torrent_ids,
                 "status_data": status_data
-            })
+            }
+            if quality_options:
+                response["quality_options"] = quality_options
+            return jsonify(response)
         except Exception as e:
             logger.error(f"Ошибка при сканировании URL: {e}")
+            socketio.emit('notification', {'message': f'Ошибка при сканировании: {str(e)}', 'type': 'danger'})
             return jsonify({"error": str(e)}), 500
 
     @app.route('/update_settings', methods=['POST'])
@@ -223,20 +276,31 @@ def setup_routes(app, socketio, qb_manager, scrapers, config):
             "username": request.form['qb_username'].strip(),
             "password": request.form['qb_password'].strip()
         })
+        config.set("kinozal_auth", {
+            "username": request.form['kinozal_username'].strip(),
+            "password": request.form['kinozal_password'].strip()
+        })
+        config.set("rutracker_auth", {
+            "username": request.form['rutracker_username'].strip(),
+            "password": request.form['rutracker_password'].strip()
+        })
         new_interval = int(request.form['scan_interval'])
         config.set("scan_interval", new_interval)
         auto_start = 'auto_start' in request.form
         config.set("auto_start", auto_start)
-        qb_manager.disconnect()
-        qb_manager.host = config.get("qbittorrent")["host"]
-        qb_manager.username = config.get("qbittorrent")["username"]
-        qb_manager.password = config.get("qbittorrent")["password"]
-        qb_status, qb_message = asyncio.run(qb_manager.connect())
-        socketio.emit('qb_status_update', {'status': qb_status, 'message': qb_message})
+        
+        # Перезапуск авторизации с новыми настройками
+        auth_manager.statuses = {
+            "qbittorrent": {"status": "Проверка...", "spinner": True},
+            "kinozal": {"status": "Проверка...", "spinner": True},
+            "rutracker": {"status": "Проверка...", "spinner": True}
+        }
+        socketio.start_background_task(auth_manager.initialize)
+        
         if scheduler.running:
             scheduler.remove_all_jobs()
             scheduler.add_job(
-                lambda: asyncio.run(monitor_task(socketio, qb_manager, scrapers, config)),
+                lambda: asyncio.run(monitor_task(socketio, auth_manager, config)),
                 'interval',
                 minutes=new_interval,
                 id='monitor_task'
